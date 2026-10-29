@@ -1,0 +1,51 @@
+{
+  "name": "dsh-edict-boot",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 开机动画：实拍折装奏折在屏幕中央摊开，配「上朝·宫廷内侍」实录音与 16 秒变奏宫廷乐，后半程交叉渐出、主界面同时渐入。支持 web 与桌面端。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "boot-animation",
+    "splash",
+    "edict"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "license": "BSD-3-Clause",
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PLACEHOLDER/dsh-edict-boot.git"
+  },
+  "homepage": "https://github.com/PLACEHOLDER/dsh-edict-boot#readme",
+  "bugs": {
+    "url": "https://github.com/PLACEHOLDER/dsh-edict-boot/issues"
+  },
+  "author": "Lu Jiaming"
+}

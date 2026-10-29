@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>dsh-edict-boot · 逐帧核对</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0805; color: #cdbfa6;
+    font: 13px/1.6 ui-monospace, Consolas, monospace; }
+  #host { position: fixed; inset: 0; }
+  #bar { position: fixed; z-index: 2147483647; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 10px; align-items: center; padding: 8px 12px;
+    background: rgba(12, 9, 6, .86); border-top: 1px solid #2a2015; flex-wrap: wrap; }
+  #bar button, #bar select, #bar input { font: inherit; color: #e8d8ba;
+    background: #1a130c; border: 1px solid #3a2d1c; border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+  #bar button:hover { border-color: #6b5433; }
+  #label { margin-left: auto; opacity: .65; }
+
+  /* 垫在片头下面的假 DSH 界面：用来验证"揭幕时界面是渐入而不是跳出来"。
+     真实环境里这一层就是 DSH 自己的 DOM，不需要我们画。 */
+  #fakedsh { position: fixed; inset: 0; z-index: 0; display: flex;
+    background: #16171a; color: #c9ccd1;
+    font: 13px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  #fakedsh .fs-side { width: 248px; flex: 0 0 auto; border-right: 1px solid #24262b;
+    background: #1b1d21; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+  #fakedsh .fs-brand { font-weight: 600; letter-spacing: .02em; margin-bottom: 10px; color: #e8eaed; }
+  #fakedsh .fs-item { padding: 6px 9px; border-radius: 7px; color: #9ba1a9; }
+  #fakedsh .fs-item.on { background: #24272d; color: #e8eaed; }
+  #fakedsh .fs-main { flex: 1; display: flex; flex-direction: column; padding: 34px 44px; gap: 14px; }
+  #fakedsh .fs-h { font-size: 20px; font-weight: 600; color: #e8eaed; }
+  #fakedsh .fs-p { color: #8d939b; max-width: 620px; }
+  #fakedsh .fs-box { margin-top: 8px; border: 1px solid #2a2d33; border-radius: 12px;
+    padding: 14px 16px; color: #6f757d; max-width: 720px; }
+  #fakedsh .fs-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #ff7500; margin-right: 8px; vertical-align: 1px; }
+  #note { position: fixed; z-index: 2147483646; left: 12px; top: 10px; opacity: .5; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="fakedsh">
+  <div class="fs-side">
+    <div class="fs-brand">DeepSeek Harness</div>
+    <div class="fs-item on">◈ 新对话</div>
+    <div class="fs-item">◇ 奏折动画</div>
+    <div class="fs-item">◇ 插件开发</div>
+  </div>
+  <div class="fs-main">
+    <div class="fs-h"><span class="fs-dot"></span>DeepSeek Harness</div>
+    <div class="fs-p">这一段是预览页垫在片头下面的模拟界面，只为了让你看清揭幕时
+      「奏折虚化退出、界面虚化渐入」的交叉过程。真实启动时这里是 DSH 本体。</div>
+    <div class="fs-box">输入消息…</div>
+  </div>
+</div>
+<div id="host"></div>
+<div id="note">▶ 重播 = 完整播放视频 · ?play=1 进来就播 · ?css=1 用 CSS 版 · ?phase=N&static=1 定格</div>
+<div id="bar">
+  <button data-act="replay">▶ 重播</button>
+  <button data-act="static">定格</button>
+  <select id="phase">
+    <option value="0">0 合着的奏折（CSS 版）</option>
+    <option value="1">1 解封皮（CSS 版）</option>
+    <option value="2">2 缓缓张开（CSS 版）</option>
+  </select>
+  <button data-act="apply">套用</button>
+  <button data-act="skip">跳过 / 揭幕</button>
+  <button data-act="toggle">切换：视频 / CSS</button>
+  <button data-act="sound">🔈 开启声音</button>
+  <span id="label"></span>
+</div>
+<script src="./scene.js"></script>
+<link rel="stylesheet" href="./scene.css">
+<script>
+  var params = new URLSearchParams(location.search);
+  var phaseSel = document.getElementById('phase');
+
+  function label(text) { document.getElementById('label').textContent = text; }
+
+  /** 真正开始一轮播放。重播必须走这里，不能走 run()。 */
+  /**
+   * 视频路径随"怎么打开这个页面"而变：
+   *   - file:// 双击打开      → ./media/memorial.mp4
+   *   - 走宿主 /dsh-edict/preview → /dsh-edict/memorial.mp4
+   * 这里自己算一份显式传下去，不依赖 scene.js 去猜。
+   */
+  function videoPath() {
+    if (location.protocol === 'file:') return './media/memorial.mp4';
+    /* 宿主把 preview 页的 ./scene.css 改写成了 /dsh-edict/css，
+       所以视频走宿主的绝对路由 */
+    return '/dsh-edict/memorial.mp4';
+  }
+
+  var wantVideo = params.get('css') !== '1';
+
+  /**
+   * 真正开始一轮播放。重播必须走这里，不能走 run()。
+   *
+   * 注意 wantVideo **不受 phase 影响**：定格里也允许重播整段视频。
+   * 之前用 !params.has('phase') 判断，结果默认页面（带 phase 参数时）
+   * 重播永远走 CSS 分支，看起来像"点了没反应"。
+   */
+  function startPlay() {
+    label(wantVideo ? '播放中（视频版）…' : '播放中（CSS 版）…');
+    window.DshEdictBoot.play({
+      config: { video: wantVideo, videoSrc: wantVideo ? videoPath() : undefined },
+      onDone: function () { label('播完了 · 点「▶ 重播」再来一次'); }
+    });
+  }
+
+  /**
+   * 按 URL 参数决定首屏形态。
+   * 注意：只有**首次加载**该走这里。「重播」如果也走它，而 URL 上还是
+   * 默认的 static=1&phase=5，那重播就只是把定格图重画一遍——这正是
+   * 上一版「点重播没有从头到尾」的原因。
+   */
+  function run() {
+    var phase = Number(params.get('phase'));
+    var isStatic = params.get('static') === '1';
+    var play = params.get('play') === '1';
+
+    if (isStatic && Number.isFinite(phase) && params.has('phase')) {
+      phaseSel.value = String(phase);
+      window.DshEdictBoot.play({ static: true, phase: phase });
+      label('定格 phase=' + phase);
+      return;
+    }
+    if (play) { startPlay(); return; }
+
+    /* 默认：定格一帧给你看成品，并明确提示点重播。
+       想让首屏直接播，就在地址后面加 ?play=1。 */
+    phaseSel.value = '2';
+    window.DshEdictBoot.play({ static: true, phase: 2, config: { video: false } });
+    label('定格预览 · 点「▶ 重播」播放完整视频');
+  }
+
+  document.getElementById('bar').addEventListener('click', function (ev) {
+    var act = ev.target && ev.target.getAttribute('data-act');
+    if (!act) return;
+
+    if (act === 'replay') {
+      /* 无条件播一遍：不读 URL，也不管当前是定格还是播放中 */
+      startPlay();
+    } else if (act === 'apply' || act === 'static') {
+      var n = Number(phaseSel.value) || 0;
+      location.search = '?phase=' + n + '&static=1';
+    } else if (act === 'sound') {
+      /* 浏览器要求用户手势才能出声：这个点击本身就算手势 */
+      var as = window.__edictAudioState;
+      if (as && (as.bgm || as.voice)) {
+        try { if (as.bgm) { as.bgm.currentTime = 0; as.bgm.play() } } catch (e) {}
+        try { if (as.voice) { as.voice.currentTime = 0; as.voice.play() } } catch (e) {}
+        label('声音已开启');
+      } else {
+        label('先点「▶ 重播」，再点这里开启声音');
+      }
+    } else if (act === 'toggle') {
+      wantVideo = !wantVideo;
+      label('已切到 ' + (wantVideo ? '视频版' : 'CSS 版') + ' · 点「▶ 重播」生效');
+    } else if (act === 'skip') {
+      window.DshEdictBoot.finish();
+      label('已跳过');
+    }
+  });
+
+  run();
+</script>
+</body>
+</html>

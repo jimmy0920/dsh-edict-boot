@@ -1,0 +1,653 @@
+
+/* ============================================================================
+ * dsh-edict-boot — 奏折开机动画
+ * ----------------------------------------------------------------------------
+ * 皇上视角的御案：一卷合着的奏折被推开，纸面徐徐展开，奏文自右向左誊写，
+ * 最后落朱批「知道了」并盖下御览之宝；随后整幕抬起、淡出，露出 DSH 主界面。
+ *
+ * 全部由 DOM + CSS 完成，没有视频、没有图片、没有字体文件：
+ *   - 纸纹   = 多层渐变（噪点条纹 + 暖白基底 + 边缘发暗）
+ *   - 乌丝栏 = 由 scene.js 按奏文列数生成 N+1 条竖线，与文字严丝合缝
+ *   - 朱批   = 行楷字 + clip-path 自右向左扫出
+ *   - 印章   = CSS 方块 + 2x2 格 + mix-blend-mode: multiply（像真的盖上去）
+ *
+ * 版面按真奏折来分：
+ *   右侧 64% 是正文（乌丝栏里一列一列写），左侧留给朱批与御览之宝。
+ *   正文铺满左半边会没有地方落批语——这是第一版截图里最刺眼的问题。
+ *
+ * 阶段由 .ed-root 上的类推进（scene.js 按时间线加），不是一条长 keyframes：
+ * 这样每个阶段都能单独定格（?phase=N&static=1）用于截图核对，也能中途跳过。
+ * ========================================================================== */
+
+.ed-root {
+  --ed-speed: 1;
+  --ed-ink: #241a12;
+  --ed-ink-soft: #4a3626;
+  --ed-vermilion: #b3241c;
+  --ed-paper-1: #f7f0de;
+  --ed-paper-2: #e9dcbe;
+  --ed-paper-3: #d5c3a0;
+
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #120d08;
+  opacity: 0;
+  transition: opacity calc(320ms / var(--ed-speed)) ease-out;
+  contain: strict;
+  will-change: opacity;
+}
+
+.ed-root.ed-ready { opacity: 1; }
+/**
+ * 收尾（交叉虚化）
+ * ----------------------------------------------------------------------------
+ * 关键点：浮层的**不透明度不能直接归零**，否则下面的 DSH 会硬邦邦地"跳"出来，
+ * 看起来是幕布被扯掉，而不是界面浮上来。做法是分两半：
+ *
+ *   1. 整层底色的 alpha 从 1 衰减到 0 —— 底下真实的 DSH 界面透过来越来越多
+ *   2. 同时奏折本体 filter: blur + scale + 淡出 —— 它"退"进虚化里
+ *
+ * 两者同一条曲线、同时长，于是观感是"奏折化进雾里、DSH 从雾里浮出来"。
+ * DSH 自己的内容不需要我们插手（它一直在下面，只是被这层盖着）。
+ */
+.ed-root.ed-reveal {
+  pointer-events: none;
+  background: transparent;
+  transition: background-color calc(1000ms / var(--ed-speed)) ease-out;
+}
+
+/**
+ * 底层：底色与暗角一起化开，让底下真实的 DSH 透出来。
+ *
+ * 这里**不做** mask 式的"从中间裂开"——试过，mask 的位置/尺寸过渡在
+ * 各浏览器上不可靠，而且漏到非收尾态会把开局也挖出一个洞。
+ * "从折缝里张开"的观感改由奏折本体承担：纸面在张开的同时从中间
+ * 向两侧化开（见 .ed-paper 的收尾规则）。
+ */
+.ed-root.ed-reveal .ed-desk,
+.ed-root.ed-reveal .ed-vignette {
+  opacity: 0;
+  transition: opacity calc(1000ms / var(--ed-speed)) ease-out;
+}
+
+/* 定格模式（截图 / 预览逐帧核对）：一切都是终态，没有过渡 */
+.ed-root.ed-static, .ed-root.ed-static * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+
+/* ── 桌面与光 ─────────────────────────────────────────────────────────── */
+
+.ed-desk {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(58% 42% at 50% 60%, rgba(86, 52, 20, .30), transparent 74%),
+    radial-gradient(130% 120% at 50% 46%, #1b1309 0%, #0d0904 64%, #070402 100%);
+}
+/* 烛火：两团暖光，轻微呼吸 */
+.ed-desk::before,
+.ed-desk::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: .34;
+  animation: ed-flicker calc(5200ms / var(--ed-speed)) ease-in-out infinite alternate;
+}
+.ed-desk::before {
+  width: 40vw; height: 34vh; left: 2vw; top: 0;
+  background: radial-gradient(circle, rgba(255, 176, 84, .42), transparent 68%);
+}
+.ed-desk::after {
+  width: 36vw; height: 30vh; right: 2vw; bottom: -6vh;
+  background: radial-gradient(circle, rgba(255, 140, 60, .30), transparent 70%);
+  animation-delay: calc(-2100ms / var(--ed-speed));
+}
+@keyframes ed-flicker {
+  from { opacity: .26; transform: scale(1); }
+  to   { opacity: .40; transform: scale(1.06); }
+}
+
+/* 暗角：把视线压到桌面正中 */
+.ed-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(80% 70% at 50% 52%, transparent 38%, rgba(0, 0, 0, .5) 82%, rgba(0, 0, 0, .84) 100%);
+}
+
+/* 御案上的接触阴影：纸不悬空，是压在案子上的 */
+.ed-fold-layer::after {
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -7%;
+  height: 16%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, .62), transparent 72%);
+  filter: blur(18px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── 舞台：一点点俯视，皇上是「低头看案」 ─────────────────────────────── */
+
+.ed-stage {
+  position: relative;
+  perspective: 2000px;
+  perspective-origin: 50% 44%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 收尾时整幕向外推、虚化——与 DSH 的"渐入"交叉进行 */
+  transition:
+    transform calc(760ms / var(--ed-speed)) cubic-bezier(.4, 0, .2, 1),
+    filter calc(760ms / var(--ed-speed)) ease-out;
+  will-change: transform, filter;
+}
+
+.ed-fold-layer {
+  position: relative;
+  height: min(62vh, 560px);
+  /* 合着时窄（一卷），展开时宽——这是"从封面到居中打开"的核心 */
+  width: min(26vw, 230px);
+  transform: rotateX(10deg) translateY(1.5vh);
+  transform-style: preserve-3d;
+  /* 1600ms 的"缓缓张开"：虚化要压在这段的尾巴上，动作够长才叠得住 */
+  transition: width calc(1600ms / var(--ed-speed)) cubic-bezier(.22, .61, .24, 1);
+  will-change: width;
+}
+
+/* 翻开之后（纸面开始铺开时）把整卷放到最终宽度。
+   宽度变化与纸面铺开用同一条曲线，两者叠在一起才像"抖开"而不是"拉伸"。 */
+.ed-root.ed-unrolled .ed-fold-layer {
+  width: min(84vw, 1180px);
+}
+
+/* ── 奏折封皮：合着时的两片，向两侧翻开 ───────────────────────────────── */
+
+.ed-cover {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  /* 翻开时整片向外侧甩出去，transparent 收尾比硬切好看 */
+  background:
+    linear-gradient(180deg, rgba(255, 236, 190, .10), transparent 26%),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 4px),
+    linear-gradient(168deg, #3d2a17 0%, #2a1c0e 46%, #1b1108 100%);
+  border: 1px solid rgba(200, 163, 90, .34);
+  box-shadow:
+    inset 0 0 60px rgba(0, 0, 0, .6),
+    0 26px 60px rgba(0, 0, 0, .6);
+  transition:
+    transform calc(880ms / var(--ed-speed)) cubic-bezier(.22, .68, .2, 1),
+    opacity calc(880ms / var(--ed-speed)) ease-out;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+.ed-cover--left  { left: 0;  border-radius: 3px 0 0 3px; transform-origin: right center; }
+.ed-cover--right { right: 0; border-radius: 0 3px 3px 0; transform-origin: left center; }
+
+/* 封面上的竖排题签 */
+.ed-cover::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 9%;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", "Songti SC", "SimSun", serif;
+  font-size: clamp(15px, 1.3vw, 20px);
+  letter-spacing: .42em;
+  color: #d8c093;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .8);
+  padding: .9em .38em;
+  border: 1px solid rgba(200, 163, 90, .3);
+  border-radius: 2px;
+  background: rgba(214, 178, 108, .05);
+}
+.ed-cover--right::after { left: 10%; }
+.ed-cover--left::after  { right: 10%; }
+
+/**
+ * 合卷时把纸面整块藏起来。
+ *
+ * 必须用 :not(.ed-open)——ed-closed 是**第一拍加的、之后一直留着**的阶段类，
+ * 直接写 .ed-root.ed-closed .ed-paper 会永久生效，翻开之后纸面还是不显示。
+ * 这个坑我踩过：整卷从第 900ms 起就只剩一条竖线。
+ */
+.ed-root.ed-closed:not(.ed-open) .ed-paper {
+  width: 0;
+  left: 50%;
+  opacity: 0;
+  box-shadow: none;
+}
+.ed-root.ed-closed .ed-cover { opacity: 1; }
+/* 封面合上时盖住纸面：纸面被藏在两片封皮下面 */
+.ed-cover { z-index: 2; }
+.ed-paper { z-index: 1; }
+
+/* 绕书脊向外翻：左片向右转、右片向左转，转到背面藏起来 */
+.ed-root.ed-open .ed-cover--left {
+  transform: rotateY(172deg);
+  opacity: 0;
+  transition-delay: calc(60ms / var(--ed-speed));
+}
+.ed-root.ed-open .ed-cover--right {
+  transform: rotateY(-172deg);
+  opacity: 0;
+}
+
+/* ── 纸面：先是一条窄条（折着的），展开时才铺满 ───────────────────────── */
+
+.ed-paper {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 15%;
+  left: 42.5%;
+  border-radius: 2px;
+  overflow: hidden;
+  /* 纸纹刻意做得很淡：上一版 2px/5px 的条纹在这个尺寸下成了方格纸。 */
+  background:
+    radial-gradient(120% 96% at 50% 0%, rgba(255, 252, 244, .55), transparent 60%),
+    radial-gradient(70% 40% at 22% 78%, rgba(150, 112, 62, .10), transparent 72%),
+    radial-gradient(60% 36% at 78% 18%, rgba(150, 112, 62, .08), transparent 74%),
+    repeating-linear-gradient(90deg, rgba(126, 96, 56, .022) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--ed-paper-1) 0%, var(--ed-paper-2) 62%, var(--ed-paper-3) 100%);
+  box-shadow:
+    inset 0 0 52px rgba(94, 66, 30, .24),
+    inset 0 0 2px rgba(94, 66, 30, .45),
+    0 24px 60px rgba(0, 0, 0, .62),
+    0 6px 18px rgba(0, 0, 0, .5);
+  opacity: 1;
+  transition:
+    width calc(1600ms / var(--ed-speed)) cubic-bezier(.22, .61, .24, 1),
+    left calc(1600ms / var(--ed-speed)) cubic-bezier(.22, .61, .24, 1),
+    opacity calc(420ms / var(--ed-speed)) ease-out;
+  will-change: width, left;
+}
+.ed-root.ed-unrolled .ed-paper {
+  width: 100%;
+  left: 0;
+}
+/* 纸两端的挤压阴影 */
+.ed-paper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(70, 48, 22, .30), transparent 7%, transparent 93%, rgba(70, 48, 22, .30)),
+    linear-gradient(180deg, rgba(70, 48, 22, .16), transparent 5%, transparent 95%, rgba(70, 48, 22, .22));
+}
+
+/* ── 正文：右侧乌丝栏 ─────────────────────────────────────────────────── */
+
+/* 乌丝栏：竖线由 scene.js 生成，与正文列一一对齐 */
+.ed-rules {
+  position: absolute;
+  top: 8.5%;
+  bottom: 8.5%;
+  right: 4%;
+  width: 66%;
+  opacity: 0;
+  transition: opacity calc(420ms / var(--ed-speed)) ease-out calc(200ms / var(--ed-speed));
+}
+.ed-root.ed-unrolled .ed-rules { opacity: 1; }
+
+/* 上下框线（朱丝栏的横边） */
+.ed-rules::before,
+.ed-rules::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(150, 46, 34, .40);
+}
+.ed-rules::before { top: 0; }
+.ed-rules::after { bottom: 0; }
+
+.ed-rule-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(150, 46, 34, .28);
+}
+
+/* 奏文列：与乌丝栏同一块盒，等宽分格 */
+/* ── 朱批「知道了」：正文左侧的空白处 ─────────────────────────────────── */
+
+.ed-edict {
+  position: absolute;
+  left: 13.5%;
+  top: 10%;
+  height: 44%;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-family: "STXingkai", "Xingkai SC", "STKaiti", "KaiTi", "Kaiti SC", serif;
+  font-size: clamp(30px, 3.3vw, 56px);
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--ed-vermilion);
+  text-shadow:
+    0 0 1px rgba(140, 26, 19, .45),
+    0 2px 8px rgba(179, 36, 28, .22);
+  opacity: 0;
+  /* 自右向左扫出，像一笔写下去 */
+  clip-path: inset(0 0 0 100%);
+  transform: rotate(-1.6deg) scale(1.05);
+  transition:
+    clip-path calc(700ms / var(--ed-speed)) cubic-bezier(.3, .66, .24, 1),
+    opacity calc(160ms / var(--ed-speed)) ease-out,
+    transform calc(840ms / var(--ed-speed)) cubic-bezier(.2, .7, .2, 1);
+  will-change: clip-path, transform;
+}
+/* 朱批同样归到张开这一拍，但要晚一点落笔——所以给它加延迟 */
+.ed-root.ed-unrolled .ed-edict {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+  transform: rotate(-1.6deg) scale(1);
+  transition-delay: calc(900ms / var(--ed-speed));
+}
+
+/* ── 御览之宝：朱批下方 ───────────────────────────────────────────────── */
+
+.ed-seal {
+  position: absolute;
+  left: 15.5%;
+  bottom: 11%;
+  width: clamp(58px, 5.4vw, 84px);
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  place-items: center;
+  padding: 5px;
+  box-sizing: border-box;
+  border: 2.5px solid var(--ed-vermilion);
+  border-radius: 3px;
+  color: var(--ed-vermilion);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", "Songti SC", "SimSun", serif;
+  font-size: clamp(15px, 1.5vw, 23px);
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(179, 36, 28, .06);
+  mix-blend-mode: multiply;
+  opacity: 0;
+  transform: rotate(-7deg) scale(1.7);
+  transition:
+    opacity calc(150ms / var(--ed-speed)) ease-out,
+    transform calc(380ms / var(--ed-speed)) cubic-bezier(.2, 1.5, .4, 1);
+  will-change: transform, opacity;
+}
+.ed-seal span:nth-child(1) { grid-area: 1 / 2; }  /* 右上 */
+.ed-seal span:nth-child(2) { grid-area: 2 / 2; }  /* 右下 */
+.ed-seal span:nth-child(3) { grid-area: 1 / 1; }  /* 左上 */
+.ed-seal span:nth-child(4) { grid-area: 2 / 1; }  /* 左下 */
+.ed-root.ed-unrolled .ed-seal {
+  opacity: .9;
+  transform: rotate(-7deg) scale(1);
+  transition-delay: calc(1250ms / var(--ed-speed));
+}
+/* 盖下那一记：一圈很快散开的印泥洇开 */
+.ed-seal::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 6px;
+  border: 2px solid rgba(179, 36, 28, .45);
+  opacity: 0;
+}
+.ed-root.ed-unrolled .ed-seal::after {
+  animation: ed-stamp calc(540ms / var(--ed-speed)) ease-out both;
+  animation-delay: calc(1250ms / var(--ed-speed));
+}
+@keyframes ed-stamp {
+  0%   { opacity: .8; transform: scale(.94); }
+  100% { opacity: 0;  transform: scale(1.45); }
+}
+
+/* 落印时纸面整体一震（很轻，不能像 UI 弹窗） */
+.ed-root.ed-unrolled .ed-paper {
+  animation: ed-thud calc(300ms / var(--ed-speed)) cubic-bezier(.3, .7, .4, 1) both;
+  animation-delay: calc(760ms / var(--ed-speed));
+}
+@keyframes ed-thud {
+  0%   { transform: translateY(0) scale(1); }
+  38%  { transform: translateY(2.5px) scale(.997); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* ── 揭幕：整幕抬起、虚化，露出下面的 DSH ─────────────────────────────── */
+
+.ed-root.ed-reveal .ed-stage {
+  /**
+   * 张开的收势 + 虚化，两者同时发生。
+   *
+   * 注意 transform 是 scale(1.12) 而不是"缩小"：奏折在化开的时候还在
+   * 继续向外撑——像你把画卷彻底摊开、东西扑到眼前。缩小会读成"画面
+   * 被拿走"，向外撑才读成"打开了"。
+   *
+   * 缓动：blur 用 ease-out（前段慢，才像化开）；透明度用 ease-in
+   * （前段稳住不透明，后半程才退干净），这样"还在张"的那几帧是清楚的。
+   */
+  transform: scale(1.12);
+  filter: blur(20px);
+  opacity: 0;
+  transition:
+    transform calc(1050ms / var(--ed-speed)) cubic-bezier(.3, .7, .25, 1),
+    filter calc(1050ms / var(--ed-speed)) cubic-bezier(.3, .7, .25, 1),
+    opacity calc(950ms / var(--ed-speed)) cubic-bezier(.5, .05, .8, .5);
+}
+
+/* ── 跳过 ─────────────────────────────────────────────────────────────── */
+
+.ed-skip {
+  position: absolute;
+  right: 26px;
+  bottom: 22px;
+  padding: 7px 14px;
+  border: 1px solid rgba(216, 192, 147, .28);
+  border-radius: 999px;
+  background: rgba(20, 14, 8, .5);
+  backdrop-filter: blur(6px);
+  color: rgba(232, 216, 186, .8);
+  font: 12px/1 ui-monospace, "JetBrains Mono", Consolas, monospace;
+  letter-spacing: .12em;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity calc(420ms / var(--ed-speed)) ease-out, color .18s, border-color .18s;
+}
+.ed-root.ed-ready .ed-skip { opacity: .66; }
+.ed-root.ed-reveal .ed-skip {
+  opacity: 0;
+  transition: opacity calc(260ms / var(--ed-speed)) ease-out;
+}
+.ed-skip:hover { color: #fff; border-color: rgba(216, 192, 147, .6); }
+
+/* ── 减少动态效果：不演，直接给终态 ───────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .ed-root, .ed-root * {
+    animation: none !important;
+    transition-duration: 120ms !important;
+  }
+  .ed-desk::before, .ed-desk::after { display: none; }
+}
+
+/* ============================================================================
+ * 视频模式（实拍奏折）
+ * ----------------------------------------------------------------------------
+ * 视频铺满窗口，6 秒里奏折从合着的一卷摊开成手风琴式长卷。
+ * 播完由 scene.js 加 .ed-reveal，复用同一套交叉虚化——所以两种片头
+ * （CSS 版 / 视频版）的收尾观感完全一致。
+ *
+ * 水印：实测全片 145 帧，水印恒定在画面右下角的一块纯背景上，
+ * 奏折最低点只到 y=528（水印从 y=620 起），两者从不重叠。
+ * 所以这里用一块同色矩形盖住它，不需要 ffmpeg 重编码，零画质损失。
+ * 具体坐标由 scene.js 按实测像素换算成百分比写入。
+ * ========================================================================== */
+
+.ed-root.ed-video-mode {
+  /**
+   * 视频模式的关键一条。
+   *
+   * 普通模式下 .ed-root 是 opacity:0，等 .ed-ready 才淡入——那是为了
+   * CSS 演绎的"显影"效果。但视频模式里 .ed-ready 要等视频 playing 才加，
+   * 中间那段时间整个浮层是透明的，DSH 主界面直接露出来，观感就是
+   * 「先闪一下界面，再弹出动画」。
+   *
+   * 所以视频模式下浮层一插入就必须是不透明的：底色取御案深棕，
+   * 与视频第一帧的桌面同色，从"纯色"过渡到"视频第一帧"是无缝的。
+   */
+  background: #120d08;
+  opacity: 1;
+}
+
+.ed-vstage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: none;
+}
+
+/* 视频容器：铺满窗口，按 cover 裁切（不拉伸） */
+.ed-vwrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #0b0d0c;
+}
+
+.ed-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* cover：填满窗口、不留黑边；超出部分裁掉。视频是 16:9，
+     窗口通常更宽，所以上下会被裁——奏折在画面中央，裁不掉。 */
+  object-fit: cover;
+  /* 源画面 16:9，窗口更宽时上下会被裁。奏折在画面里偏上，所以取 44%
+     让主体落得更居中；配合下面的 scale 填掉上下的空黑。 */
+  object-position: 50% 44%;
+  transform: scale(1.16);
+  transform-origin: 50% 46%;
+  display: block;
+}
+
+/**
+ * 水印遮挡块。
+ *
+ * 颜色必须和视频该处的背景一致：实测背景均值 RGB(12,14,14) 附近，
+ * 且全片标准差不超 5.5，是一块非常平的深色。用纯色即可无缝。
+ * 边缘加一点羽化，避免硬边框。
+ */
+.ed-vmask-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 与 .ed-video 的变换保持一致，遮罩才会跟着视频一起移动缩放 */
+  transform: scale(1.16);
+  transform-origin: 50% 46%;
+}
+
+.ed-wm-mask {
+  position: absolute;
+  background: #0c0e0d;
+  /* 略微外扩，盖住水印的抗锯齿边缘 */
+  margin: -6px -10px;
+  box-shadow: 0 0 24px 12px #0c0e0d;
+  pointer-events: none;
+}
+
+/* 视频模式下的收尾：整段视频化进雾里，与 CSS 版同一条曲线 */
+/**
+ * 视频版收尾：1300ms，比 CSS 版更长更从容。
+ *
+ * 视频是"正在张开的实拍画面"，渐出太快会像被切断；慢一点才读成
+ * "画面化进雾里"，而底下 DSH 同时浮上来。scale 用 1.08（不是 1.12）：
+ * 实拍素材放大过头会露出插值痕迹。
+ */
+.ed-root.ed-video-mode.ed-reveal .ed-vstage {
+  transform: scale(1.08);
+  filter: blur(22px);
+  opacity: 0;
+  transition:
+    transform calc(1300ms / var(--ed-speed)) cubic-bezier(.3, .75, .3, 1),
+    filter calc(1300ms / var(--ed-speed)) cubic-bezier(.3, .75, .3, 1),
+    opacity calc(1250ms / var(--ed-speed)) cubic-bezier(.45, .05, .75, .5);
+}
+
+.ed-root.ed-video-mode.ed-reveal {
+  background: transparent;
+  transition: background-color calc(1300ms / var(--ed-speed)) ease-out;
+}
+
+.ed-root.ed-video-mode.ed-reveal .ed-desk,
+.ed-root.ed-video-mode.ed-reveal .ed-vignette {
+  opacity: 0;
+  transition: opacity calc(1300ms / var(--ed-speed)) ease-out;
+}
+
+/* 视频还没出画面时不要闪一下黑底上的按钮 */
+.ed-video-mode .ed-skip { opacity: 0; }
+.ed-video-mode.ed-ready .ed-skip { opacity: .66; }
+
+/* ── 「点击开启声音」提示 ────────────────────────────────────────────────
+ *
+ * 位置放在左下角：右下角是「跳过」，左上角留给画面主体，
+ * 左下是唯一不与现有元素冲突、又足够显眼的位置。
+ */
+.ed-sound-hint {
+  position: absolute;
+  left: 26px;
+  bottom: 22px;
+  z-index: 10;
+  padding: 9px 16px;
+  border: 1px solid rgba(216, 192, 147, .42);
+  border-radius: 999px;
+  background: rgba(24, 16, 9, .72);
+  backdrop-filter: blur(8px);
+  color: rgba(240, 226, 200, .94);
+  font: 13px/1 "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: .06em;
+  cursor: pointer;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .5);
+  animation: ed-hint-in 420ms ease-out both,
+             ed-hint-pulse 2.4s ease-in-out 420ms infinite;
+}
+
+.ed-sound-hint:hover {
+  border-color: rgba(216, 192, 147, .8);
+  color: #fff;
+  background: rgba(40, 26, 14, .85);
+}
+
+@keyframes ed-hint-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 很轻的呼吸，提示"这里可以点"，但不要像警报 */
+@keyframes ed-hint-pulse {
+  0%, 100% { box-shadow: 0 6px 22px rgba(0, 0, 0, .5); }
+  50%      { box-shadow: 0 6px 22px rgba(0, 0, 0, .5), 0 0 0 4px rgba(216, 192, 147, .10); }
+}
+
+/* 减少动态效果时不要呼吸 */
+@media (prefers-reduced-motion: reduce) {
+  .ed-sound-hint { animation: none; }
+}

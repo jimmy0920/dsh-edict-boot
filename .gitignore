@@ -1,0 +1,28 @@
+# Node
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# 打包产物
+*.tgz
+dist/
+
+# 本地临时文件
+*.tmp
+*.bak
+_audio/
+_tts/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 预览截图（本地调试用）
+shots/

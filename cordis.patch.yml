@@ -1,0 +1,9 @@
+# Bundle patch for dsh-edict-boot.
+#
+# 让这个包成为一个 PROFILE LAYER（而不是一个装了但不生效的依赖）：
+# dsh 会在启动时把 dsh.profile.bundles 里的包和磁盘上的包对账，
+# 只有声明了 `dsh.bundle.patch` 的依赖才会进入层栈，下面这条 insert
+# 才真正把插件挂上去。形状与官方 bundle patch 一致。
+- insert:
+    - id: dsh-edict-boot
+      name: dsh-edict-boot

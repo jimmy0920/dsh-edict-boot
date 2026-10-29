@@ -41,11 +41,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PLACEHOLDER/dsh-edict-boot.git"
+    "url": "git+https://github.com/jimmy0920/dsh-edict-boot.git"
   },
-  "homepage": "https://github.com/PLACEHOLDER/dsh-edict-boot#readme",
+  "homepage": "https://github.com/jimmy0920/dsh-edict-boot#readme",
   "bugs": {
-    "url": "https://github.com/PLACEHOLDER/dsh-edict-boot/issues"
+    "url": "https://github.com/jimmy0920/dsh-edict-boot/issues"
   },
   "author": "Lu Jiaming"
 }
